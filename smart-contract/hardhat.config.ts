@@ -5,7 +5,11 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 const BNB_RPC_URL = process.env.BNB_RPC_URL || "";
-const PRIVATE_KEY = process.env.DEPLOYER_PRIVATE_KEY || "";
+const PRIVATE_KEY_RAW = process.env.DEPLOYER_PRIVATE_KEY || "";
+// Remove 0x prefix if present and validate length (64 hex chars = 32 bytes)
+const PRIVATE_KEY = PRIVATE_KEY_RAW.startsWith("0x") 
+  ? PRIVATE_KEY_RAW.slice(2) 
+  : PRIVATE_KEY_RAW;
 const FUNCTIONS_SUBSCRIPTION_ID = process.env.FUNCTIONS_SUBSCRIPTION_ID
   ? parseInt(process.env.FUNCTIONS_SUBSCRIPTION_ID, 10)
   : 0;
@@ -15,6 +19,13 @@ const FUNCTIONS_GAS_LIMIT = process.env.FUNCTIONS_GAS_LIMIT
   ? parseInt(process.env.FUNCTIONS_GAS_LIMIT, 10)
   : 300000;
 const FUNCTIONS_ROUTER = process.env.FUNCTIONS_ROUTER || "";
+
+// Validate private key format (must be 64 hex characters = 32 bytes)
+const isValidPrivateKey = PRIVATE_KEY.length === 64 && /^[0-9a-fA-F]+$/.test(PRIVATE_KEY);
+
+if (!isValidPrivateKey && PRIVATE_KEY.length > 0) {
+  console.warn(`⚠️  WARNING: Private key is invalid (length: ${PRIVATE_KEY.length}, expected: 64). Deployment will fail.`);
+}
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -32,7 +43,7 @@ const config: HardhatUserConfig = {
     bnb_testnet: {
       url: BNB_RPC_URL,
       chainId: 97,
-      accounts: PRIVATE_KEY ? [PRIVATE_KEY] : []
+      accounts: isValidPrivateKey ? [PRIVATE_KEY] : (PRIVATE_KEY.length > 0 ? [] : undefined)
     }
   },
   etherscan: {

@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Hardhat files
+cache/
+artifacts/
+typechain-types/
+
+# Environment (CRITICAL: Contains private keys!)
+.env
+.env.*
+!.env.example
+
+# Hardhat deployment outputs
+deployments/
+broadcast/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Coverage
+coverage/
+coverage.json
+.coverage_cache/
+.coverage_contracts/
+
+# TypeScript
+*.tsbuildinfo
+
+# Temporary
+*.tmp
+*.bak
+
+# Foundry (if used)
+out/
+lcov.info
+

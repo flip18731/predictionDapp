@@ -34,23 +34,122 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Environment and secrets
+# Environment and secrets (CRITICAL: Contains private keys!)
 .env
 .env.local
+.env.development
+.env.production
+.env.test
 .env.*
 !.env.example
+!.env.example.local
+*.env
+*.env.*
+!*.env.example
+
+# Relayer secrets
+relayer/.env
+relayer/.env.*
+!relayer/.env.example
+
+# Smart contract secrets
+smart-contract/.env
+smart-contract/.env.*
+!smart-contract/.env.example
+
+# Frontend secrets
+dapp/.env
+dapp/.env.local
+dapp/.env.*
+!dapp/.env.example
 
 # OS-specific junk
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
+Desktop.ini
 
 # VS Code and editor settings
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+.classpath
 
 # Chainlink Functions temporary files
 chainlink/functions/build/
 chainlink/functions/dist/
 
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+
+# Mac specific
+.AppleDouble
+.LSOverride
+
 # Misc
 *.tsbuildinfo
+.turbo
+
+# Test coverage
+.nyc_output/
+coverage/
+
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# parcel-bundler cache
+.cache
+.parcel-cache
+
+# Serverless directories
+.serverless/
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# Stores VSCode versions used for testing VSCode extensions
+.vscode-test
+
+# Python (if any scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+
+# Documentation generated files
+docs/_build/
+site/

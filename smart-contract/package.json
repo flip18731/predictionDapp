@@ -5,7 +5,13 @@
   "scripts": {
     "build": "hardhat compile",
     "test": "hardhat test",
-    "deploy:testnet": "hardhat run scripts/deploy.ts --network bnb_testnet"
+    "deploy:testnet": "hardhat run scripts/deploy.ts --network bnb_testnet",
+    "deploy:relayer": "hardhat run scripts/deployRelayer.ts --network bnb_testnet",
+    "add-consumer": "hardhat run scripts/addConsumer.ts --network bnb_testnet",
+    "set-source": "hardhat run scripts/setSourceCode.ts --network bnb_testnet",
+    "fund-subscription": "hardhat run scripts/fundSubscription.ts --network bnb_testnet",
+    "create-subscription": "hardhat run scripts/createSubscription.ts --network bnb_testnet",
+    "update-subscription": "hardhat run scripts/updateSubscription.ts --network bnb_testnet"
   },
   "dependencies": {
     "@chainlink/contracts": "^1.3.0",
