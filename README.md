@@ -9,19 +9,18 @@ Clarity Protocol is an AI-powered oracle that resolves ambiguous prediction mark
 **Key Features:**
 - ⚡ **Fast Resolution**: 20 seconds vs 48-96 hours (UMA)
 - 🔍 **Evidence-Based**: On-chain citations, not token-weighted votes
-- 🤖 **AI-Powered**: Perplexity/Gemini integration via Chainlink Functions
+- 🤖 **AI-Powered**: Perplexity AI integration via custom relayer
 - 🔗 **BNB Chain Native**: Built for the 20+ PM dApps on BNB Chain
 
 ## 📚 Documentation
 
 ### Quick Start Guides
-- **[SETUP.md](SETUP.md)** – Complete setup guide for developers
-- **[DEPLOYMENT.md](DEPLOYMENT.md)** – Step-by-step deployment instructions
-- **[DEMO_SCRIPT.md](DEMO_SCRIPT.md)** – 2-minute demo script for hackathon presentation
+- **[DEPLOYMENT_COMPLETE.md](DEPLOYMENT_COMPLETE.md)** – Complete deployment and testing guide
+- **[RELAYER_IMPLEMENTATION_PLAN.md](RELAYER_IMPLEMENTATION_PLAN.md)** – Relayer architecture and implementation details
 
 ### Configuration
-- **[smart-contract/ENV_SETUP.md](smart-contract/ENV_SETUP.md)** – Smart contract environment variables
-- **[dapp/ENV_SETUP.md](dapp/ENV_SETUP.md)** – Frontend environment variables
+- **[relayer/README.md](relayer/README.md)** – Relayer setup and configuration
+- **[dapp/README.md](dapp/README.md)** – Frontend setup and configuration
 
 ### Strategy & Architecture
 - **[docs/clarity_protocol_strategy.md](docs/clarity_protocol_strategy.md)** – Comprehensive strategy document covering win strategy, MVP design, and roadmap
@@ -31,11 +30,16 @@ Clarity Protocol is an AI-powered oracle that resolves ambiguous prediction mark
 ```
 .
 ├── smart-contract/          # Hardhat workspace
-│   ├── contracts/          # ClarityOracle.sol
+│   ├── contracts/          # RelayerOracle.sol
 │   ├── scripts/            # Deployment & setup scripts
 │   └── test/               # Contract tests
-├── chainlink/
-│   └── functions/          # clarityEvidence.js (Chainlink Functions source)
+├── relayer/                # Node.js relayer backend
+│   ├── src/               # Relayer source code
+│   │   ├── index.ts       # Main entry point
+│   │   ├── eventListener.ts # Event monitoring
+│   │   ├── perplexityClient.ts # AI API integration
+│   │   └── contractInteraction.ts # Blockchain interaction
+│   └── scripts/           # Utility scripts
 ├── dapp/                   # Next.js frontend
 │   └── src/
 │       ├── app/           # Next.js app router
@@ -51,8 +55,8 @@ Clarity Protocol is an AI-powered oracle that resolves ambiguous prediction mark
 - Node.js 18+
 - MetaMask or compatible wallet
 - BNB Chain testnet BNB ([faucet](https://testnet.bnbchain.org/faucet-smart))
-- Chainlink Functions subscription ([functions.chain.link](https://functions.chain.link))
-- Perplexity API key (or Gemini API key)
+- Perplexity API key
+- Relayer wallet with BNB for gas
 
 ### 1. Smart Contract Setup
 
@@ -61,35 +65,40 @@ cd smart-contract
 npm install
 ```
 
-Create `.env` file (see [smart-contract/ENV_SETUP.md](smart-contract/ENV_SETUP.md)):
+Create `.env` file:
 
 ```env
 BNB_RPC_URL=https://data-seed-prebsc-1-s1.binance.org:8545/
 DEPLOYER_PRIVATE_KEY=your_private_key
-FUNCTIONS_ROUTER=0x6E2dc0F9DB014aE19888F539E59285D2Ea04244C
-FUNCTIONS_SUBSCRIPTION_ID=your_subscription_id
-FUNCTIONS_DON_ID=0x66756e2d6273632d746573746e65742d3100000000000000000000000000000000
-FUNCTIONS_GAS_LIMIT=300000
+RELAYER_ADDRESS=your_relayer_wallet_address
 ```
 
 Deploy:
 ```bash
 npm run build
-npm run deploy:testnet
+npx hardhat run scripts/deployRelayer.ts --network bnb_testnet
 ```
 
-Set source code:
+### 2. Relayer Setup
+
 ```bash
-# Add CLARITY_ORACLE_ADDRESS to .env first
-npx hardhat run scripts/setSourceCode.ts --network bnb_testnet
+cd relayer
+npm install
 ```
 
-### 2. Chainlink Functions Configuration
+Create `.env` file:
 
-1. Create subscription at [functions.chain.link](https://functions.chain.link)
-2. Fund with LINK tokens
-3. Add `perplexityApiKey` to secrets bucket
-4. Source code is in `chainlink/functions/clarityEvidence.js`
+```env
+BNB_RPC_URL=https://data-seed-prebsc-1-s1.binance.org:8545/
+RELAYER_PRIVATE_KEY=your_relayer_private_key
+CONTRACT_ADDRESS=0x... # From deployment above
+PERPLEXITY_API_KEY=your_perplexity_api_key
+```
+
+Start relayer:
+```bash
+npm start
+```
 
 ### 3. Frontend Setup
 
@@ -98,7 +107,7 @@ cd dapp
 npm install
 ```
 
-Create `.env.local` (see [dapp/ENV_SETUP.md](dapp/ENV_SETUP.md)):
+Create `.env.local`:
 
 ```env
 NEXT_PUBLIC_CLARITY_CONTRACT_ADDRESS=0x... # From deployment
@@ -116,14 +125,15 @@ Visit `http://localhost:3000`
 
 ## 🎬 Demo Flow
 
-1. Connect wallet to BNB Chain testnet
-2. Enter question: "Did CZ use the word 'opportunity' in his October 17th tweet?" (referring to https://x.com/cz_binance/status/1979204734125748615)
-3. Click "Request resolution"
-4. Wait ~20-30 seconds for AI processing
-5. View resolution with verdict, summary, and source citations
-6. Verify on BscScan
+1. Start the relayer backend (see Step 2 above)
+2. Connect wallet to BNB Chain testnet in the frontend
+3. Enter question: "Did CZ use the word 'opportunity' in his October 17th tweet?"
+4. Click "Submit Question"
+5. Wait ~20-30 seconds for AI processing
+6. View resolution with verdict, summary, and source citations
+7. Verify on BscScan
 
-See [DEMO_SCRIPT.md](DEMO_SCRIPT.md) for the complete 2-minute demo script.
+See [DEPLOYMENT_COMPLETE.md](DEPLOYMENT_COMPLETE.md) for detailed testing instructions.
 
 ## 🏆 Winning Strategy
 
@@ -140,13 +150,15 @@ This project is strategically designed to win by:
 ```
 User (Frontend)
   ↓
-Smart Contract (ClarityOracle.sol)
+Smart Contract (RelayerOracle.sol)
   ↓
-Chainlink Functions DON
+Event: ResolutionRequested
   ↓
-AI API (Perplexity/Gemini)
+Relayer Backend (Node.js)
   ↓
-Chainlink Functions DON
+AI API (Perplexity)
+  ↓
+Relayer Backend (parses response)
   ↓
 Smart Contract (fulfillResolution)
   ↓
@@ -156,25 +168,24 @@ Frontend (displays result)
 ## 🔧 Tech Stack
 
 - **Blockchain**: BNB Chain Testnet
-- **Smart Contract**: Solidity 0.8.23, Chainlink Functions
+- **Smart Contract**: Solidity 0.8.23, Hardhat
+- **Relayer**: Node.js, TypeScript, ethers.js v6
 - **Frontend**: Next.js 14, React, Tailwind CSS
 - **Web3**: wagmi, viem, ConnectKit
-- **AI**: Perplexity API (or Gemini)
-- **Infrastructure**: Chainlink Functions DON
+- **AI**: Perplexity API
 
 ## 📝 Next Steps
 
-1. ✅ Review [SETUP.md](SETUP.md) for detailed setup
-2. ✅ Follow [DEPLOYMENT.md](DEPLOYMENT.md) to deploy
-3. ✅ Practice [DEMO_SCRIPT.md](DEMO_SCRIPT.md) for presentation
-4. ✅ Read [docs/clarity_protocol_strategy.md](docs/clarity_protocol_strategy.md) for full context
+1. ✅ Review [DEPLOYMENT_COMPLETE.md](DEPLOYMENT_COMPLETE.md) for detailed setup
+2. ✅ Follow [RELAYER_IMPLEMENTATION_PLAN.md](RELAYER_IMPLEMENTATION_PLAN.md) for architecture details
+3. ✅ Read [docs/clarity_protocol_strategy.md](docs/clarity_protocol_strategy.md) for full context
 
 ## 🤝 Contributing
 
 This is a hackathon project. For questions or issues:
 1. Check the documentation files
 2. Review the strategy document
-3. Check Chainlink Functions and BNB Chain docs
+3. Check BNB Chain docs
 
 ## 📄 License
 
