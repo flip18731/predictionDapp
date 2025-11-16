@@ -58,14 +58,28 @@ process.on('SIGTERM', () => {
 });
 
 // Unhandled errors
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason: any, promise) => {
+  // Check if it's a rate limit error - don't crash on these
+  const errorMessage = reason?.message || String(reason);
+  if (errorMessage.includes('rate limit') || reason?.code === 'BAD_DATA') {
+    // Rate limit errors are handled by the event listener, just log
+    return;
+  }
+  
   console.error('');
   console.error('❌ Unhandled Rejection at:', promise);
   console.error('Reason:', reason);
   console.error('');
 });
 
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', (error: any) => {
+  // Check if it's a rate limit error - don't crash on these
+  const errorMessage = error?.message || String(error);
+  if (errorMessage.includes('rate limit') || error?.code === 'BAD_DATA') {
+    // Rate limit errors are handled by the event listener, just log
+    return;
+  }
+  
   console.error('');
   console.error('❌ Uncaught Exception:', error);
   console.error('');

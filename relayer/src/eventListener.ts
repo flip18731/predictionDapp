@@ -5,6 +5,12 @@ import { perplexityClient } from './perplexityClient';
 export class EventListener {
   private contract: ethers.Contract;
   private isListening = false;
+  private pollingInterval: NodeJS.Timeout | null = null;
+  private processedRequests = new Set<string>();
+  private lastCheckedBlock = 0;
+  private rateLimitBackoff = 0; // Backoff in seconds
+  private consecutiveRateLimitErrors = 0;
+  private pollingDisabled = false;
 
   constructor() {
     this.contract = contractInteraction.getContract();
@@ -31,33 +37,235 @@ export class EventListener {
       console.warn('⚠️ Low balance! Relayer may not have enough gas for transactions.');
     }
 
+    // Get current block for polling
+    const provider = (contractInteraction as any).provider;
+    const currentBlock = await provider.getBlockNumber();
+    
+    // Check for unfulfilled requests from recent blocks (last 100 blocks = ~5 minutes)
+    // Reduced to avoid RPC rate limits
+    console.log('🔍 Checking for unfulfilled requests...');
+    const fromBlock = Math.max(0, currentBlock - 100);
+    
+    try {
+      const filter = this.contract.filters.ResolutionRequested();
+      const recentEvents = await this.contract.queryFilter(filter, fromBlock, currentBlock);
+    
+      for (const event of recentEvents) {
+        // Type guard: only process EventLog (has args), not plain Log
+        if (event instanceof ethers.EventLog) {
+          const args = event.args;
+          if (args && args.length >= 4) {
+            const requestId = args[0] as string;
+            const requester = args[1] as string;
+            const question = args[2] as string;
+            const timestamp = args[3] as bigint;
+            
+            try {
+              const resolution = await this.contract.getResolution(requestId);
+              if (!resolution.fulfilled) {
+                console.log('⚠️ Found unfulfilled request:', requestId);
+                // Process it
+                await this.handleNewRequest(
+                  requestId,
+                  requester,
+                  question,
+                  timestamp,
+                  event
+                );
+              }
+            } catch (error) {
+              // If getResolution fails, try to process anyway
+              console.log('⚠️ Could not check resolution, processing anyway:', requestId);
+              await this.handleNewRequest(
+                requestId,
+                requester,
+                question,
+                timestamp,
+                event
+              );
+            }
+          }
+        }
+      }
+      console.log(`✅ Checked ${recentEvents.length} events from last 100 blocks`);
+    } catch (error: any) {
+      // Handle RPC rate limit errors gracefully
+      if (error.message && error.message.includes('rate limit')) {
+        console.warn('⚠️ RPC rate limit hit while checking past events. Continuing with real-time listener only.');
+        console.warn('   (This is normal for public RPC endpoints. Past events will be caught by polling.)');
+      } else {
+        console.warn('⚠️ Error checking past events:', error.message);
+        console.warn('   Continuing with real-time listener...');
+      }
+    }
+    
+    this.lastCheckedBlock = currentBlock;
+    console.log('Starting polling from block:', this.lastCheckedBlock);
+
     this.isListening = true;
 
-    // Listen for ResolutionRequested events
+    // Method 1: Real-time event listener
+    // In ethers v6, contract.on() passes event parameters directly
     this.contract.on(
       'ResolutionRequested',
-      async (requestId: string, requester: string, question: string, timestamp: bigint, event: ethers.EventLog) => {
-        console.log('');
-        console.log('═══════════════════════════════════════');
-        console.log('🔔 NEW RESOLUTION REQUEST');
-        console.log('═══════════════════════════════════════');
-        console.log('Request ID:', requestId);
-        console.log('Requester:', requester);
-        console.log('Question:', question);
-        console.log('Timestamp:', new Date(Number(timestamp) * 1000).toISOString());
-        console.log('Block:', event.blockNumber);
-        console.log('Transaction:', event.transactionHash);
-        console.log('═══════════════════════════════════════');
-        console.log('');
-
-        // Process the request
-        await this.processRequest(requestId, question);
+      async (requestId: string, requester: string, question: string, timestamp: bigint, event?: ethers.EventLog) => {
+        await this.handleNewRequest(requestId, requester, question, timestamp, event);
       }
     );
 
+    // Method 2: Polling fallback (adaptive interval based on rate limits)
+    // Start with 60 seconds to be more conservative with public RPC
+    // NOTE: Polling is disabled by default to avoid rate limits on public RPC
+    // It will only be enabled if needed (e.g., after missing events)
+    // this.startPolling(); // Disabled to avoid rate limits
+
     console.log('✅ Event listener started');
-    console.log('Listening for ResolutionRequested events...');
+    console.log('Listening for ResolutionRequested events (real-time only - polling disabled to avoid rate limits)');
     console.log('');
+  }
+
+  async handleNewRequest(
+    requestId: string,
+    requester: string,
+    question: string,
+    timestamp: bigint,
+    event?: ethers.EventLog
+  ) {
+    // Avoid processing duplicates
+    if (this.processedRequests.has(requestId)) {
+      return;
+    }
+
+    this.processedRequests.add(requestId);
+
+    console.log('');
+    console.log('═══════════════════════════════════════');
+    console.log('🔔 NEW RESOLUTION REQUEST');
+    console.log('═══════════════════════════════════════');
+    console.log('Request ID:', requestId);
+    console.log('Requester:', requester);
+    console.log('Question:', question);
+    console.log('Timestamp:', new Date(Number(timestamp) * 1000).toISOString());
+    if (event) {
+      console.log('Block:', event.blockNumber);
+      console.log('Transaction:', event.transactionHash);
+    }
+    console.log('═══════════════════════════════════════');
+    console.log('');
+
+    // Process the request
+    await this.processRequest(requestId, question);
+  }
+
+  startPolling() {
+    // Clear existing interval if any
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+    }
+
+    // Calculate polling interval: base 60s, increases with rate limit backoff
+    const baseInterval = 60000; // 60 seconds (more conservative for public RPC)
+    const interval = baseInterval + (this.rateLimitBackoff * 1000);
+
+    this.pollingInterval = setInterval(async () => {
+      await this.pollForEvents();
+    }, interval);
+
+    if (this.rateLimitBackoff > 0) {
+      console.log(`⏱️ Polling interval: ${interval / 1000}s (backoff: ${this.rateLimitBackoff}s)`);
+    }
+  }
+
+  async pollForEvents() {
+    // Skip if we're in backoff period
+    if (this.rateLimitBackoff > 0) {
+      this.rateLimitBackoff = Math.max(0, this.rateLimitBackoff - 1);
+      return;
+    }
+
+    // If we've hit too many rate limits, disable polling temporarily
+    if (this.consecutiveRateLimitErrors >= 3) {
+      // Disable polling completely - rely on real-time events only
+      if (!this.pollingDisabled) {
+        this.pollingDisabled = true;
+        if (this.pollingInterval) {
+          clearInterval(this.pollingInterval);
+          this.pollingInterval = null;
+        }
+        console.warn('⚠️ Polling disabled due to rate limits. Relying on real-time events only.');
+        console.warn('   Restart relayer to re-enable polling.');
+      }
+      return;
+    }
+
+    try {
+      const provider = (contractInteraction as any).provider;
+      const currentBlock = await provider.getBlockNumber();
+      
+      if (currentBlock <= this.lastCheckedBlock) {
+        return; // No new blocks
+      }
+
+      // Query for events in the new block range (max 5 blocks at a time to avoid rate limits)
+      const toBlock = Math.min(currentBlock, this.lastCheckedBlock + 5);
+      const filter = this.contract.filters.ResolutionRequested();
+      const events = await this.contract.queryFilter(filter, this.lastCheckedBlock + 1, toBlock);
+
+      // Reset consecutive errors on success
+      this.consecutiveRateLimitErrors = 0;
+      this.pollingDisabled = false;
+
+      for (const event of events) {
+        // Type guard: only process EventLog (has args), not plain Log
+        if (event instanceof ethers.EventLog) {
+          const args = event.args;
+          if (args && args.length >= 4) {
+            const requestId = args[0] as string;
+            const requester = args[1] as string;
+            const question = args[2] as string;
+            const timestamp = args[3] as bigint;
+
+            // Check if already fulfilled
+            try {
+              const resolution = await this.contract.getResolution(requestId);
+              if (!resolution.fulfilled) {
+                await this.handleNewRequest(requestId, requester, question, timestamp, event);
+              }
+            } catch (error) {
+              // If getResolution fails, process anyway
+              await this.handleNewRequest(requestId, requester, question, timestamp, event);
+            }
+          }
+        }
+      }
+
+      this.lastCheckedBlock = toBlock;
+    } catch (error: any) {
+      const errorMessage = error.message || '';
+      
+      // Check if it's a rate limit error
+      if (errorMessage.includes('rate limit') || error.code === 'BAD_DATA') {
+        this.consecutiveRateLimitErrors++;
+        
+        // Exponential backoff: 60s, 120s, 240s, max 600s (10 minutes)
+        this.rateLimitBackoff = Math.min(600, 60 * Math.pow(2, this.consecutiveRateLimitErrors - 1));
+        
+        // Restart polling with new interval
+        this.startPolling();
+        
+        if (this.consecutiveRateLimitErrors === 1) {
+          console.warn('⚠️ RPC rate limit detected. Increasing polling interval...');
+        }
+        
+        // Don't log every error to avoid spam - only every 10th error
+        if (this.consecutiveRateLimitErrors % 10 === 0) {
+          console.warn(`⚠️ Rate limit errors: ${this.consecutiveRateLimitErrors}. Backoff: ${this.rateLimitBackoff}s`);
+        }
+      } else {
+        // Non-rate-limit error
+        console.error('⚠️ Error polling for events:', errorMessage);
+      }
+    }
   }
 
   async processRequest(requestId: string, question: string) {
@@ -118,7 +326,14 @@ export class EventListener {
 
     console.log('🛑 Stopping event listener...');
     this.contract.removeAllListeners();
+    
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+      this.pollingInterval = null;
+    }
+    
     this.isListening = false;
+    this.processedRequests.clear();
     console.log('✅ Event listener stopped');
   }
 }
