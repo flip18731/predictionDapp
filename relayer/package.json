@@ -5,8 +5,12 @@
   "main": "dist/index.js",
   "scripts": {
     "start": "ts-node src/index.ts",
+    "start:v2": "ts-node src/indexV2.ts",
     "build": "tsc",
-    "dev": "ts-node-dev --respawn src/index.ts"
+    "dev": "ts-node-dev --respawn src/index.ts",
+    "dev:v2": "ts-node-dev --respawn src/indexV2.ts",
+    "test:ai": "ts-node test/ai-integration.test.ts",
+    "test:ai-simple": "ts-node test/ai-integration-simple.test.ts"
   },
   "keywords": ["oracle", "relayer", "ai", "prediction-markets"],
   "author": "",

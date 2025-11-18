@@ -7,7 +7,15 @@ export const config = {
   relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY!,
   contractAddress: process.env.CONTRACT_ADDRESS!,
   perplexityApiKey: process.env.PERPLEXITY_API_KEY!,
+  geminiApiKey: process.env.GEMINI_API_KEY,
+  openaiApiKey: process.env.OPENAI_API_KEY,
   logLevel: process.env.LOG_LEVEL || 'info',
+  // v2 specific
+  useV2: process.env.USE_V2 === 'true',
+  arbitratorAddress: process.env.ARBITRATOR_ADDRESS, // Gnosis Safe address
+  // Rate limit mitigation
+  checkRecentQuestions: process.env.CHECK_RECENT_QUESTIONS !== 'false', // Default: true
+  recentBlocksRange: parseInt(process.env.RECENT_BLOCKS_RANGE || '20'), // Default: 20 blocks (~1 minute)
 };
 
 // Validation

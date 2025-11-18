@@ -61,7 +61,12 @@ export class EventListener {
             const timestamp = args[3] as bigint;
             
             try {
+              // FIX: Validate request exists before processing
               const resolution = await this.contract.getResolution(requestId);
+              if (resolution.requester === ethers.ZeroAddress) {
+                console.warn(`⚠️ Skipping invalid request: ${requestId} (does not exist)`);
+                continue;
+              }
               if (!resolution.fulfilled) {
                 console.log('⚠️ Found unfulfilled request:', requestId);
                 // Process it
@@ -74,7 +79,7 @@ export class EventListener {
                 );
               }
             } catch (error) {
-              // If getResolution fails, try to process anyway
+              // If getResolution fails, try to process anyway (might be a read error)
               console.log('⚠️ Could not check resolution, processing anyway:', requestId);
               await this.handleNewRequest(
                 requestId,
@@ -114,13 +119,12 @@ export class EventListener {
     );
 
     // Method 2: Polling fallback (adaptive interval based on rate limits)
-    // Start with 60 seconds to be more conservative with public RPC
-    // NOTE: Polling is disabled by default to avoid rate limits on public RPC
-    // It will only be enabled if needed (e.g., after missing events)
-    // this.startPolling(); // Disabled to avoid rate limits
+    // FIX: Enable polling with conservative interval for demo (60s) to catch missed events
+    // This ensures we don't miss events if the real-time listener fails
+    this.startPolling();
 
     console.log('✅ Event listener started');
-    console.log('Listening for ResolutionRequested events (real-time only - polling disabled to avoid rate limits)');
+    console.log('Listening for ResolutionRequested events (real-time + polling fallback)');
     console.log('');
   }
 
@@ -134,6 +138,22 @@ export class EventListener {
     // Avoid processing duplicates
     if (this.processedRequests.has(requestId)) {
       return;
+    }
+
+    // FIX: Validate request exists before adding to processed set
+    try {
+      const resolution = await this.contract.getResolution(requestId);
+      if (resolution.requester === ethers.ZeroAddress) {
+        console.warn(`⚠️ Skipping invalid request: ${requestId} (does not exist)`);
+        return;
+      }
+      if (resolution.fulfilled) {
+        console.log(`✅ Request ${requestId} already fulfilled, skipping`);
+        return;
+      }
+    } catch (error) {
+      // Continue if read fails (might be network issue)
+      console.warn('⚠️ Could not validate request, continuing...');
     }
 
     this.processedRequests.add(requestId);
@@ -228,6 +248,10 @@ export class EventListener {
             // Check if already fulfilled
             try {
               const resolution = await this.contract.getResolution(requestId);
+              if (resolution.requester === ethers.ZeroAddress) {
+                console.warn(`⚠️ Skipping invalid request from polling: ${requestId}`);
+                continue;
+              }
               if (!resolution.fulfilled) {
                 await this.handleNewRequest(requestId, requester, question, timestamp, event);
               }
@@ -273,7 +297,31 @@ export class EventListener {
       console.log('🤖 Processing request with AI...');
       
       // Step 1: Call Perplexity API
-      const aiResponse = await perplexityClient.getResolution(question);
+      // FIX: Added retry logic and better error handling
+      let aiResponse;
+      let retries = 3;
+      let lastError: Error | null = null;
+
+      while (retries > 0) {
+        try {
+          aiResponse = await perplexityClient.getResolution(question);
+          break; // Success, exit retry loop
+        } catch (error: any) {
+          lastError = error;
+          retries--;
+          
+          if (retries > 0) {
+            const delay = (4 - retries) * 2000; // 2s, 4s, 6s
+            console.warn(`⚠️ AI API call failed, retrying in ${delay/1000}s... (${retries} retries left)`);
+            console.warn(`   Error: ${error.message}`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+        }
+      }
+
+      if (!aiResponse) {
+        throw lastError || new Error('Failed to get AI response after retries');
+      }
       
       console.log('');
       console.log('📊 AI Response:');
@@ -286,9 +334,9 @@ export class EventListener {
       });
       console.log('');
 
-      // Step 2: Submit to contract
+      // Step 2: Submit to contract (with retry logic built-in)
       console.log('📝 Submitting to blockchain...');
-      const receipt = await contractInteraction.fulfillResolution(requestId, aiResponse);
+      const receipt = await contractInteraction.fulfillResolution(requestId, aiResponse, 3);
 
       if (receipt) {
         console.log('');
@@ -311,6 +359,9 @@ export class EventListener {
       console.error('Error:', error.message);
       console.error('═══════════════════════════════════════');
       console.error('');
+      
+      // FIX: Remove from processed set to allow retry on next run
+      this.processedRequests.delete(requestId);
       
       // Log full error for debugging
       if (error.stack) {
@@ -339,4 +390,3 @@ export class EventListener {
 }
 
 export const eventListener = new EventListener();
-

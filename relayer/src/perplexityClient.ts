@@ -14,6 +14,8 @@ export interface AIResponse {
 export class PerplexityClient {
   private apiKey: string;
   private apiUrl = 'https://api.perplexity.ai/chat/completions';
+  // FIX: Increased timeout from 15s to 30s for demo stability (some API calls take longer)
+  private timeout = 30000; // 30 seconds
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;
@@ -58,7 +60,7 @@ Return ONLY valid JSON.`;
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${this.apiKey}`
           },
-          timeout: 30000
+          timeout: this.timeout
         }
       );
 
@@ -79,16 +81,45 @@ Return ONLY valid JSON.`;
         throw new Error(`Invalid JSON response from AI: ${parseError}`);
       }
 
-      // Validate structure
+      // FIX: Validate structure - ensure sources array exists and is not empty
       if (!parsed.verdict || !parsed.summary || !Array.isArray(parsed.sources)) {
         throw new Error('AI response missing required fields (verdict, summary, sources)');
       }
 
+      // FIX: Ensure sources array has at least one valid source
+      if (parsed.sources.length === 0) {
+        console.warn('⚠️ No sources provided by AI, adding default "Unclear" verdict');
+        parsed.sources = [{
+          title: 'Insufficient Evidence',
+          url: '',
+          quote: 'AI could not find sufficient sources to support or refute the question'
+        }];
+        parsed.verdict = 'Unclear';
+      }
+
+      // FIX: Validate and normalize each source
+      parsed.sources = parsed.sources
+        .filter(source => source && typeof source === 'object')
+        .map(source => ({
+          title: (source.title || 'Unknown').substring(0, 100), // Limit length
+          url: (source.url || '').substring(0, 200), // Limit length
+          quote: (source.quote || '').substring(0, 200) // Limit length
+        }))
+        .slice(0, 3); // Max 3 sources
+
       // Validate verdict
       const validVerdicts = ['Supported', 'Refuted', 'Unclear'];
-      if (!validVerdicts.includes(parsed.verdict)) {
+      const normalizedVerdict = parsed.verdict.trim();
+      if (!validVerdicts.includes(normalizedVerdict)) {
         console.warn(`⚠️ Invalid verdict "${parsed.verdict}", defaulting to "Unclear"`);
         parsed.verdict = 'Unclear';
+      } else {
+        parsed.verdict = normalizedVerdict;
+      }
+
+      // FIX: Ensure summary is within length limit
+      if (parsed.summary.length > 280) {
+        parsed.summary = parsed.summary.substring(0, 277) + '...';
       }
 
       console.log('✅ Response parsed successfully');
@@ -100,6 +131,13 @@ Return ONLY valid JSON.`;
     } catch (error: any) {
       if (axios.isAxiosError(error)) {
         console.error('❌ Perplexity API error:', error.response?.data || error.message);
+        // FIX: Better error message for demo
+        if (error.code === 'ECONNABORTED') {
+          throw new Error(`Perplexity API timeout (${this.timeout}ms). Try again or check network.`);
+        }
+        if (error.response?.status === 429) {
+          throw new Error('Perplexity API rate limit exceeded. Please wait before retrying.');
+        }
         throw new Error(`Perplexity API failed: ${error.response?.status} ${error.message}`);
       }
       throw error;
@@ -109,4 +147,3 @@ Return ONLY valid JSON.`;
 
 // Singleton instance
 export const perplexityClient = new PerplexityClient(config.perplexityApiKey);
-

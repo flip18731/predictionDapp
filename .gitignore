@@ -153,3 +153,6 @@ ENV/
 # Documentation generated files
 docs/_build/
 site/
+
+# Temporary template directories
+temp-ai-chatbot/
